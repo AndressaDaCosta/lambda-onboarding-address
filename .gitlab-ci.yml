@@ -1,0 +1,66 @@
+stages:
+    - test-build
+    - archiving
+    - deploy
+
+
+
+test-build:
+    stage: test-build
+    only:
+        - tags
+    except:
+        - branches
+    environment:
+        name: "${CI_COMMIT_TAG_MESSAGE}"
+    image: node:latest
+    script:
+        - cat $ENV_VARS >> .env #get env vars from gitlab
+        - npm ci # Uses package-lock.json
+        - npm run build-test-prod # This script builds too
+        - cp .env dist/
+        - cp package.json dist/
+        - cp package-lock.json dist/
+        - cp -r node_modules dist/
+    artifacts:
+        paths:
+            - dist/
+    when: on_success
+
+
+archive:
+    stage: archiving
+    only:
+        - tags
+    except:
+        - branches
+    environment:
+        name: "${CI_COMMIT_TAG_MESSAGE}"
+    image: ubuntu
+    when:
+        on_success
+    before_script:
+        - apt-get update
+        - apt-get install zip -y
+    script:
+        - cd dist/
+        - zip -r ../$CI_PROJECT_NAME.zip .
+    artifacts:
+        paths:
+            - $CI_PROJECT_NAME.zip
+
+deploy:
+    stage: deploy
+    only:
+        - tags
+    except:
+        - branches
+    environment:
+        name: "${CI_COMMIT_TAG_MESSAGE}"
+    image:
+        name: amazon/aws-cli
+        entrypoint: [""]
+    script:
+        - aws --version
+        - aws configure set region us-east-1
+        - aws lambda update-function-code --function-name $LAMBDA_NAME --zip-file fileb://$CI_PROJECT_NAME.zip
