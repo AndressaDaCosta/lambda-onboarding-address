@@ -8,8 +8,9 @@ console.log(
 )
 //Validate env
 import EnvSchema from "./ValidationSchemas/EnvSchema"
+import { z } from "zod"
 import axios from "axios"
-import AWS from "aws-sdk"
+// import AWS from "aws-sdk"
 import {
 	APIGatewayProxyEvent,
 	APIGatewayProxyHandler,
@@ -17,6 +18,7 @@ import {
 } from "aws-lambda"
 import dotenv from "dotenv"
 dotenv.config()
+import BodySchema from "./ValidationSchemas/BodySchema"
 
 // Configurar o AWS SDK
 // AWS.config.update({ region: 'sua-região' });
@@ -45,11 +47,11 @@ export const handler: APIGatewayProxyHandler = async (
 		}
 	}
 
-	const { cep } = JSON.parse(event.body)
-
 	try {
+		const parsedBody = BodySchema.parse(JSON.parse(event.body))
+		const { cep } = parsedBody
 		// Brasil API to search CEP
-		const { data } = await axios.get(
+		const { data } = await axios.get<AddressResponse>(
 			`https://brasilapi.com.br/api/cep/v2/${cep}`
 		)
 		// Aqui salvaria os dados na tabela 'users' após conectar com AWS comentado no código abaixo
@@ -83,10 +85,30 @@ export const handler: APIGatewayProxyHandler = async (
 			// }),
 		}
 	} catch (error) {
-		// erro é um CEP não encontrado
-		return {
-			statusCode: 400,
-			body: JSON.stringify({ message: "CEP não encontrado" })
+		if (error instanceof z.ZodError) {
+			// If the error is a Zod validation error, return a 400 status code
+			return {
+				statusCode: 400,
+				body: JSON.stringify({
+					message: "CEP deve conter 8 dígitos.",
+					errors: error.issues
+				})
+			}
+		} else if (
+			axios.isAxiosError(error) &&
+			error.response?.status === 404
+		) {
+			// Error is a CEP not found
+			return {
+				statusCode: 404,
+				body: JSON.stringify({ message: "CEP não encontrado" })
+			}
+		} else {
+			console.error("Erro:", error)
+			return {
+				statusCode: 500,
+				body: JSON.stringify({ message: "Erro interno no servidor" })
+			}
 		}
 	}
 }

@@ -52,7 +52,7 @@ describe("Lambda tests", () => {
 			)
 
 			if (result) {
-				expect(result.statusCode).toBe(400)
+				expect(result.statusCode).toBe(404)
 			} else {
 				fail("Function returned void")
 			}
