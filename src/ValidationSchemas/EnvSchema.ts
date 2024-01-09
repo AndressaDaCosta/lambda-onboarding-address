@@ -1,10 +1,11 @@
 //src/ValidationSchemas/EnvSchema.ts
 import { z } from "zod"
 //Required in prodution dont put .optional()
+
 const EnvSchema = z
 	.object({
 		//PROD
-		AWS_REGION: z.string(),
+		// AWS_REGION: z.string(),
 
 		//DEV
 		NODE_ENV: z.enum(["development", "test", "production"]).optional(),

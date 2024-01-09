@@ -1,42 +1,37 @@
 // src/index.ts
-console.log(`Loading lambda`)
 
-console.log(
-	`Environment: ${
-		process.env.NODE_ENV == "development" ? "development" : "production"
-	}`
-)
-//Validate env
-import EnvSchema from "./ValidationSchemas/EnvSchema"
+import { DocumentClient } from "aws-sdk/clients/dynamodb"
+import AWS from "aws-sdk"
 import { z } from "zod"
 import axios from "axios"
-// import AWS from "aws-sdk"
 import {
 	APIGatewayProxyEvent,
 	APIGatewayProxyHandler,
 	APIGatewayProxyResult
 } from "aws-lambda"
-import dotenv from "dotenv"
-dotenv.config()
 import BodySchema from "./ValidationSchemas/BodySchema"
+import dotenv from "dotenv"
+import EnvSchema from "./ValidationSchemas/EnvSchema"
+import { AddressResponse } from "./Types/IAddress"
+export const ENV = EnvSchema.parse(process.env)
+
+// dotenv.config()
+console.log(`Loading lambda`)
+console.log(
+	`Environment: ${
+		process.env.NODE_ENV == "development" ? "development" : "production"
+	}`
+)
 
 // Configurar o AWS SDK
 // AWS.config.update({ region: 'sua-região' });
 // const dynamoDb = new AWS.DynamoDB.DocumentClient();
 
-interface AddressResponse {
-	postalCode: string
-	street: string
-	neighborhood: string
-	city: string
-	state: string
-	longitude: string
-	latitude: string
-}
-
-export const handler: APIGatewayProxyHandler = async (
+export async function handler(
 	event: APIGatewayProxyEvent
-): Promise<APIGatewayProxyResult> => {
+): Promise<APIGatewayProxyResult> {
+	console.log("Event", event)
+
 	// Verifica se o corpo do evento não é nulo antes de analisar
 	if (!event.body) {
 		return {
@@ -50,61 +45,71 @@ export const handler: APIGatewayProxyHandler = async (
 	try {
 		const parsedBody = BodySchema.parse(JSON.parse(event.body))
 		const { cep } = parsedBody
+
+		// const { cep, clientCode } = parsedBody; //If clientCode is also part of the parsed body
+
 		// Brasil API to search CEP
 		const { data } = await axios.get<AddressResponse>(
 			`https://brasilapi.com.br/api/cep/v2/${cep}`
 		)
-		// Aqui salvaria os dados na tabela 'users' após conectar com AWS comentado no código abaixo
-		console.log("Salvar no banco de dados:", data)
 
-		/* try {
-    const { data } = await axios.get<AddressResponse>(`https://brasilapi.com.br/api/cep/v2/${cep}`);
+		// Log pra testar salvar os dados na tabela 'users', código após conectar com AWS está comentado  abaixo
+		console.log("Save to database:", data)
 
-    const params = {
-      TableName: 'DynamoDBTableName',
-      Item: {
-        CEP: cep,
-        Street: data.street,
-        Neighborhood: data.neighborhood,
-        City: data.city,
-        State: data.state,
-        Longitude: data.longitude,
-        Latitude: data.latitude,
-      }
-    };
+		/* // codigo pra quando conectar com a aws 
+        // Busque os dados do usuário existentes no DynamoDB
+        const getUserParams = {
+            TableName: 'DynamoDBTableName',
+            Key: { id: clientCode },
+        };
+        const existingUserResult = await dynamoDb.get(getUserParams).promise();
+        const existingUserData = existingUserResult.Item;
 
-    await dynamoDb.put(params).promise();
-    console.log('Dados salvos no DynamoDB com sucesso.');
-*/
+        if (!existingUserData) {
+            return {
+                statusCode: 404,
+                body: JSON.stringify({ message: "Usuário não encontrado" })
+            };
+        }
+
+        // Atualiza o endereço dentro do body JSON object
+        existingUserData.body.address = {
+            postalCode: data.postalCode,
+            street: data.street,
+            neighborhood: data.neighborhood,
+            city: data.city,
+            state: data.state,
+            latitude: data.latitude,
+            longitude: data.longitude,
+        };
+
+        // Grave o registro atualizado de volta no DynamoDB
+        const updateUserParams = {
+            TableName: 'DynamoDBTableName',
+            Key: { id: clientCode },
+            UpdateExpression: 'set body = :body',
+            ExpressionAttributeValues: {
+                ':body': existingUserData.body,
+            },
+            ReturnValues: 'UPDATED_NEW',
+        };
+        await dynamoDb.update(updateUserParams).promise();
+       console.log('User address successfully updated in DynamoDB.');
+ */
 		return {
 			statusCode: 200,
-			body: JSON.stringify(data)
-			// body: JSON.stringify({
-			//   message: 'Endereço salvo com sucesso!',
-			//   data: params.Item,
-			// }),
+			body: JSON.stringify({
+				message: "Endereço do usuário atualizado com sucesso!"
+			})
 		}
 	} catch (error) {
-		if (error instanceof z.ZodError) {
-			// If the error is a Zod validation error, return a 400 status code
-			return {
-				statusCode: 400,
-				body: JSON.stringify({
-					message: "CEP deve conter 8 dígitos.",
-					errors: error.issues
-				})
-			}
-		} else if (
-			axios.isAxiosError(error) &&
-			error.response?.status === 404
-		) {
-			// Error is a CEP not found
+		if (axios.isAxiosError(error) && error.response?.status === 404) {
 			return {
 				statusCode: 404,
 				body: JSON.stringify({ message: "CEP não encontrado" })
 			}
 		} else {
-			console.error("Erro:", error)
+			console.error("Error:", error)
 			return {
 				statusCode: 500,
 				body: JSON.stringify({ message: "Erro interno no servidor" })
